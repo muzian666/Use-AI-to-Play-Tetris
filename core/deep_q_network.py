@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-@author: 199010 Li Qing An
 
-"""
 
 # Deep Q Network 核心代码
 # 导入pytorch做为训练的基本核心
