@@ -1,1 +1,1 @@
-# Use-AI-to-Play-Tetris
+# 用强化学习训练AI自己游玩俄罗斯方块
