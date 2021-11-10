@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
 
-@author: 199010 Li Qing An
-
-"""
 # 导入训练基本环境
 import argparse
 import os
