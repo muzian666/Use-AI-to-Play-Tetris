@@ -161,12 +161,13 @@ def train(opt):
         if epoch % opt.target_update == 0:
             target_model.load_state_dict(model.state_dict())
 
-        print("Epoch: {}/{}, Loss: {:.4f}, LR: {:.6f}, Epsilon: {:.4f}, Score: {}, Tetrominoes: {}, Cleared lines: {}, Best: {}".format(
+        print("Epoch: {}/{}, Loss: {:.4f}, LR: {:.6f}, Epsilon: {:.4f}, Action: {}, Score: {}, Tetrominoes: {}, Cleared lines: {}, Best: {}".format(
             epoch,
             opt.num_epochs,
             loss.item(),
             optimizer.param_groups[0]['lr'],
             epsilon,
+            action,
             final_score,
             final_tetrominoes,
             final_cleared_lines,
