@@ -219,15 +219,29 @@ class Tetris:
 
         self.board = self.store(self.piece, self.current_pos)
 
+        # 记录放置前的棋盘状态
+        prev_holes = self.get_holes(self.board)
+        prev_bumpiness, prev_height = self.get_bumpiness_and_height(self.board)
+
         lines_cleared, self.board = self.check_cleared_rows(self.board)
+
+        # 计算放置后的棋盘状态
+        new_holes = self.get_holes(self.board)
+        new_bumpiness, new_height = self.get_bumpiness_and_height(self.board)
+
+        # 奖励函数：消行 + 棋盘质量
         score = 1 + (lines_cleared ** 2) * self.width
+        score -= 0.36 * new_holes
+        score -= 0.18 * new_bumpiness
+        score -= 0.01 * new_height
+        if self.gameover:
+            score -= 5
+
         self.score += score
         self.tetrominoes += 1
         self.cleared_lines += lines_cleared
         if not self.gameover:
             self.new_piece()
-        if self.gameover:
-            self.score -= 2
 
         return score, self.gameover
 
@@ -240,7 +254,7 @@ class Tetris:
         img = img[..., ::-1]
         img = Image.fromarray(img, "RGB")
 
-        img = img.resize((self.width * self.block_size, self.height * self.block_size))
+        img = img.resize((self.width * self.block_size, self.height * self.block_size), Image.NEAREST)
         img = np.array(img)
         img[[i * self.block_size for i in range(self.height)], :, :] = 0
         img[:, [i * self.block_size for i in range(self.width)], :] = 0

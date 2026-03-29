@@ -12,21 +12,22 @@ class DuelingDQN(nn.Module):
         super(DuelingDQN, self).__init__()
 
         # 共享特征提取层
-        self.fc1 = nn.Sequential(nn.Linear(4, 64), nn.ReLU(inplace=True))
-        self.fc2 = nn.Sequential(nn.Linear(64, 128), nn.ReLU(inplace=True))
+        self.fc1 = nn.Sequential(nn.Linear(4, 128), nn.ReLU(inplace=True))
+        self.fc2 = nn.Sequential(nn.Linear(128, 256), nn.ReLU(inplace=True))
+        self.fc3 = nn.Sequential(nn.Linear(256, 256), nn.ReLU(inplace=True))
 
         # Value Stream: 评估当前状态本身的好坏
         self.value_stream = nn.Sequential(
-            nn.Linear(128, 64),
+            nn.Linear(256, 128),
             nn.ReLU(inplace=True),
-            nn.Linear(64, 1)
+            nn.Linear(128, 1)
         )
 
         # Advantage Stream: 评估每个动作相对于平均水平的好坏
         self.advantage_stream = nn.Sequential(
-            nn.Linear(128, 64),
+            nn.Linear(256, 128),
             nn.ReLU(inplace=True),
-            nn.Linear(64, 1)
+            nn.Linear(128, 1)
         )
 
         self._create_weights()

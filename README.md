@@ -9,10 +9,23 @@
 │   ├── game.py              # 俄罗斯方块游戏环境
 │   └── deep_q_network.py    # Dueling DQN 神经网络模型
 ├── training.py              # 训练入口脚本
+├── play.py                  # 使用训练好的模型进行表演
 ├── requirements.txt         # Python 依赖
 ├── LICENSE                  # MIT 许可证
 └── README.md
 ```
+
+## 训练效果
+
+训练至 Epoch 2045/5000 时，最佳成绩：
+
+| 指标 | 数值 |
+|------|------|
+| 最高分 | 399,606 |
+| 单局放置方块 | 98,958 个 |
+| 单局消除行数 | 39,571 行 |
+| Loss | 6.56 → 5.13（持续下降） |
+| Epsilon | 0.001（已完全收敛，不再随机探索） |
 
 ## 算法详解
 
@@ -35,17 +48,28 @@ AI "看"到的不是棋盘画面，而是 4 个数字（`game.py: get_state_prop
 
 ### 奖励函数（`game.py: step`）
 
+奖励由两部分组成：**消行奖励** + **棋盘质量惩罚**，让 AI 每一步都收到直接反馈：
+
 ```
-每成功放一个方块:      +1
-每消除 N 行:           +1 + N² × 棋盘宽度
-  - 消 1 行:           +1 + 1 × 10 = +11
-  - 消 2 行:           +1 + 4 × 10 = +41
-  - 消 3 行:           +1 + 9 × 10 = +91
-  - 消 4 行 (Tetris):  +1 + 16 × 10 = +161
-游戏结束:              -2
+基础奖励:
+  放置方块:              +1
+  消除 N 行:             +N² × 棋盘宽度
+    - 消 1 行:           +1 + 1 × 10 = +11
+    - 消 2 行:           +1 + 4 × 10 = +41
+    - 消 3 行:           +1 + 9 × 10 = +91
+    - 消 4 行 (Tetris):  +1 + 16 × 10 = +161
+
+棋盘质量惩罚（每步即时反馈）:
+  空洞数 × 0.36:        空洞越多扣得越多
+  凹凸度 × 0.18:        棋盘越不平坦扣得越多
+  总高度 × 0.01:        堆得越高扣得越多
+
+游戏结束:                -5
 ```
 
-消行奖励使用 **平方** 设计，鼓励 AI 追求一次消多行而不是每次只消一行。
+- 消行奖励使用 **平方** 设计，鼓励 AI 追求一次消多行
+- 棋盘质量惩罚让 AI **每步** 都知道"你放得好不好"，而不只是等到消行才有反馈
+- 游戏结束惩罚从 -2 增加到 -5，让 AI 更重视生存
 
 ### 网络架构：Dueling DQN
 
@@ -53,11 +77,12 @@ AI "看"到的不是棋盘画面，而是 4 个数字（`game.py: get_state_prop
 
 ```
 输入 [lines_cleared, holes, bumpiness, height]
-  → fc1: Linear(4 → 64) → ReLU
-  → fc2: Linear(64 → 128) → ReLU
+  → fc1: Linear(4 → 128) → ReLU
+  → fc2: Linear(128 → 256) → ReLU
+  → fc3: Linear(256 → 256) → ReLU
   → 分支:
-      Value Stream (V):      Linear(128→64) → ReLU → Linear(64→1)   "这个状态值多少"
-      Advantage Stream (A):  Linear(128→64) → ReLU → Linear(64→1)   "这个动作比平均好多少"
+      Value Stream (V):      Linear(256→128) → ReLU → Linear(128→1)   "这个状态值多少"
+      Advantage Stream (A):  Linear(256→128) → ReLU → Linear(128→1)   "这个动作比平均好多少"
   → 合并: Q = V + (A - mean(A))
 ```
 
@@ -148,13 +173,40 @@ python training.py
 python training.py --render
 ```
 
-### 自定义参数
+### 达到目标分数自动停止训练
+
+```bash
+python training.py --target_score 100000
+```
+
+训练过程中当单局得分达到目标值时，自动停止训练并保存最佳模型。默认为 0（不限制，训练完所有 epoch）。
+
+### 查看训练好的模型表演
+
+```bash
+# 看最佳模型表演一局
+python play.py
+
+# 指定模型文件，连续看 5 局
+python play.py --model trained_models/tetris --games 5
+
+# 全部参数
+python play.py --model trained_models/tetris_best --games 3 --fps 30
+```
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--model` | trained_models/tetris_best | 模型文件路径 |
+| `--fps` | 30 | 回放帧率 |
+| `--games` | 1 | 连续玩几局 |
+
+### 自定义训练参数
 
 ```bash
 python training.py --num_epochs 5000 --batch_size 256 --lr 5e-4 --render
 ```
 
-### 全部参数说明
+### 全部训练参数说明
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
@@ -168,6 +220,7 @@ python training.py --num_epochs 5000 --batch_size 256 --lr 5e-4 --render
 | `--final_epsilon` | 1e-3 | 最终探索率 |
 | `--num_decay_epochs` | 2000 | 探索率衰减 epoch 数 |
 | `--num_epochs` | 3000 | 总训练 epoch 数 |
+| `--target_score` | 0 | 目标分数，达到后提前结束（0=不限制） |
 | `--replay_memory_size` | 30000 | 经验回放池大小 |
 | `--target_update` | 500 | Target Network 同步间隔 |
 | `--lr_decay_step` | 1000 | 学习率衰减间隔 |

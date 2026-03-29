@@ -32,6 +32,8 @@ def get_args():
     parser.add_argument("--final_epsilon", type=float, default=1e-3)
     parser.add_argument("--num_decay_epochs", type=float, default=2000)
     parser.add_argument("--num_epochs", type=int, default=3000)
+    parser.add_argument("--target_score", type=int, default=0,
+                        help="达到该分数后提前结束训练并保存模型，0 表示不限制")
     parser.add_argument("--replay_memory_size", type=int, default=30000,
                         help="Size of replay memory pool")
     parser.add_argument("--target_update", type=int, default=500,
@@ -159,22 +161,34 @@ def train(opt):
         if epoch % opt.target_update == 0:
             target_model.load_state_dict(model.state_dict())
 
-        print("Epoch: {}/{}, Action: {}, Score: {}, Tetrominoes {}, Cleared lines: {}".format(
+        print("Epoch: {}/{}, Loss: {:.4f}, LR: {:.6f}, Epsilon: {:.4f}, Score: {}, Tetrominoes: {}, Cleared lines: {}, Best: {}".format(
             epoch,
             opt.num_epochs,
-            action,
+            loss.item(),
+            optimizer.param_groups[0]['lr'],
+            epsilon,
             final_score,
             final_tetrominoes,
-            final_cleared_lines))
+            final_cleared_lines,
+            best_score))
         writer.add_scalar('Train/Score', final_score, epoch - 1)
         writer.add_scalar('Train/Tetrominoes', final_tetrominoes, epoch - 1)
         writer.add_scalar('Train/Cleared lines', final_cleared_lines, epoch - 1)
+        writer.add_scalar('Train/Loss', loss.item(), epoch - 1)
         writer.add_scalar('Train/LR', optimizer.param_groups[0]['lr'], epoch - 1)
+        writer.add_scalar('Train/Epsilon', epsilon, epoch - 1)
 
         # 保存最佳模型
         if final_score > best_score:
             best_score = final_score
             torch.save(model, "{}/tetris_best".format(opt.saved_path))
+
+        # 达到目标分数提前结束
+        if opt.target_score > 0 and best_score >= opt.target_score:
+            print("Target score {} reached! Stopping training early.".format(opt.target_score))
+            torch.save(model, "{}/tetris".format(opt.saved_path))
+            print("Training finished. Best score: {}".format(best_score))
+            return
 
     # 训练结束保存最终模型
     torch.save(model, "{}/tetris".format(opt.saved_path))
