@@ -2,6 +2,10 @@
 
 基于 PyTorch 实现的 **Dueling Double DQN** 强化学习算法，让 AI 学会自主游玩俄罗斯方块。
 
+## Demo
+
+https://github.com/muzian666/Use-AI-to-Play-Tetris/raw/main/demo.mp4
+
 ## 项目结构
 
 ```
