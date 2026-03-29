@@ -7,6 +7,7 @@ import argparse
 import os
 import shutil
 from random import random, randint, sample
+from collections import deque
 
 import numpy as np
 import torch
@@ -16,7 +17,6 @@ from tensorboardX import SummaryWriter
 # 使用游戏本体代码与Q-network代码创建环境
 from core.deep_q_network import DeepQNetwork
 from core.game import Tetris
-from collections import deque
 
 
 def get_args():
@@ -31,10 +31,13 @@ def get_args():
     parser.add_argument("--initial_epsilon", type=float, default=1)
     parser.add_argument("--final_epsilon", type=float, default=1e-3)
     parser.add_argument("--num_decay_epochs", type=float, default=2000)
-    parser.add_argument("--num_epochs", type=int, default=3000) # 默认的训练次数，可以修改
-    # parser.add_argument("--save_interval", type=int, default=1) 不可用
-    parser.add_argument("--replay_memory_size", type=int, default=5,
-                        help="Number of epoches between testing phases")
+    parser.add_argument("--num_epochs", type=int, default=3000)
+    parser.add_argument("--replay_memory_size", type=int, default=30000,
+                        help="Size of replay memory pool")
+    parser.add_argument("--target_update", type=int, default=500,
+                        help="Number of epochs between target network updates")
+    parser.add_argument("--render", action="store_true", default=False,
+                        help="Enable game rendering during training")
     parser.add_argument("--log_path", type=str, default="tensorboard")
     parser.add_argument("--saved_path", type=str, default="trained_models")
 
@@ -50,19 +53,24 @@ def train(opt):
     if os.path.isdir(opt.log_path):
         shutil.rmtree(opt.log_path)
     os.makedirs(opt.log_path)
+    os.makedirs(opt.saved_path, exist_ok=True)
     writer = SummaryWriter(opt.log_path)
     env = Tetris(width=opt.width, height=opt.height, block_size=opt.block_size)
     model = DeepQNetwork()
+    target_model = DeepQNetwork()
+    target_model.load_state_dict(model.state_dict())
     optimizer = torch.optim.Adam(model.parameters(), lr=opt.lr)
     criterion = nn.MSELoss()
 
     state = env.reset()
     if torch.cuda.is_available():
         model.cuda()
+        target_model.cuda()
         state = state.cuda()
 
     replay_memory = deque(maxlen=opt.replay_memory_size)
     epoch = 0
+    best_score = 0
     while epoch < opt.num_epochs:
         next_steps = env.get_next_states()
         # Exploration or exploitation
@@ -86,7 +94,7 @@ def train(opt):
         next_state = next_states[index, :]
         action = next_actions[index]
 
-        reward, done = env.step(action, render=True)
+        reward, done = env.step(action, render=opt.render)
 
         if torch.cuda.is_available():
             next_state = next_state.cuda()
@@ -101,7 +109,7 @@ def train(opt):
         else:
             state = next_state
             continue
-        if len(replay_memory) < opt.replay_memory_size / 10:
+        if len(replay_memory) < opt.batch_size:
             continue
         epoch += 1
         batch = sample(replay_memory, min(len(replay_memory), opt.batch_size))
@@ -116,10 +124,10 @@ def train(opt):
             next_state_batch = next_state_batch.cuda()
 
         q_values = model(state_batch)
-        model.eval()
+        target_model.eval()
         with torch.no_grad():
-            next_prediction_batch = model(next_state_batch)
-        model.train()
+            next_prediction_batch = target_model(next_state_batch)
+        target_model.train()
 
         y_batch = torch.cat(
             tuple(reward if done else reward + opt.gamma * prediction for reward, done, prediction in
@@ -129,6 +137,10 @@ def train(opt):
         loss = criterion(q_values, y_batch)
         loss.backward()
         optimizer.step()
+
+        # 定期同步 target network
+        if epoch % opt.target_update == 0:
+            target_model.load_state_dict(model.state_dict())
 
         print("Epoch: {}/{}, Action: {}, Score: {}, Tetrominoes {}, Cleared lines: {}".format(
             epoch,
@@ -141,12 +153,14 @@ def train(opt):
         writer.add_scalar('Train/Tetrominoes', final_tetrominoes, epoch - 1)
         writer.add_scalar('Train/Cleared lines', final_cleared_lines, epoch - 1)
 
-        #模型保存不可用
-        #if epoch > 0 and epoch % opt.save_interval == 0:
-            #torch.save(model, "model_save\tetris_{}".format(opt.saved_path, epoch))
+        # 保存最佳模型
+        if final_score > best_score:
+            best_score = final_score
+            torch.save(model, "{}/tetris_best".format(opt.saved_path))
 
-
-    #torch.save(model, "{}/tetris".format(opt.saved_path))
+    # 训练结束保存最终模型
+    torch.save(model, "{}/tetris".format(opt.saved_path))
+    print("Training finished. Best score: {}".format(best_score))
 
 
 if __name__ == "__main__":
