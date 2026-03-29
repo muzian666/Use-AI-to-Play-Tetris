@@ -15,13 +15,13 @@ import torch.nn as nn
 from tensorboardX import SummaryWriter
 
 # 使用游戏本体代码与Q-network代码创建环境
-from core.deep_q_network import DeepQNetwork
+from core.deep_q_network import DuelingDQN
 from core.game import Tetris
 
 
 def get_args():
     parser = argparse.ArgumentParser(
-        """使用DQN实现AI自主游玩Tetris""")
+        """使用 Dueling Double DQN 实现AI自主游玩Tetris""")
     parser.add_argument("--width", type=int, default=10, help="The common width for all images")
     parser.add_argument("--height", type=int, default=20, help="The common height for all images")
     parser.add_argument("--block_size", type=int, default=30, help="Size of a block")
@@ -36,6 +36,12 @@ def get_args():
                         help="Size of replay memory pool")
     parser.add_argument("--target_update", type=int, default=500,
                         help="Number of epochs between target network updates")
+    parser.add_argument("--lr_decay_step", type=int, default=1000,
+                        help="Number of epochs between learning rate decay")
+    parser.add_argument("--lr_decay_gamma", type=float, default=0.5,
+                        help="Learning rate decay factor")
+    parser.add_argument("--grad_clip", type=float, default=10,
+                        help="Max norm for gradient clipping")
     parser.add_argument("--render", action="store_true", default=False,
                         help="Enable game rendering during training")
     parser.add_argument("--log_path", type=str, default="tensorboard")
@@ -56,11 +62,15 @@ def train(opt):
     os.makedirs(opt.saved_path, exist_ok=True)
     writer = SummaryWriter(opt.log_path)
     env = Tetris(width=opt.width, height=opt.height, block_size=opt.block_size)
-    model = DeepQNetwork()
-    target_model = DeepQNetwork()
+    model = DuelingDQN()
+    target_model = DuelingDQN()
     target_model.load_state_dict(model.state_dict())
     optimizer = torch.optim.Adam(model.parameters(), lr=opt.lr)
-    criterion = nn.MSELoss()
+    # 学习率衰减：每 lr_decay_step 个 epoch 乘以 lr_decay_gamma
+    scheduler = torch.optim.lr_scheduler.StepLR(
+        optimizer, step_size=opt.lr_decay_step, gamma=opt.lr_decay_gamma)
+    # Huber Loss：对异常值更鲁棒，防止梯度爆炸
+    criterion = nn.SmoothL1Loss()
 
     state = env.reset()
     if torch.cuda.is_available():
@@ -124,10 +134,14 @@ def train(opt):
             next_state_batch = next_state_batch.cuda()
 
         q_values = model(state_batch)
+
+        # Double DQN: 主网络选动作，Target Network 评估价值
         target_model.eval()
         with torch.no_grad():
-            next_prediction_batch = target_model(next_state_batch)
-        target_model.train()
+            # 主网络选择下一状态的最优动作
+            best_actions = model(next_state_batch).argmax(1, keepdim=True)
+            # Target Network 评估该动作的 Q 值
+            next_prediction_batch = target_model(next_state_batch).gather(1, best_actions)
 
         y_batch = torch.cat(
             tuple(reward if done else reward + opt.gamma * prediction for reward, done, prediction in
@@ -136,7 +150,10 @@ def train(opt):
         optimizer.zero_grad()
         loss = criterion(q_values, y_batch)
         loss.backward()
+        # 梯度裁剪：防止梯度爆炸
+        torch.nn.utils.clip_grad_norm_(model.parameters(), opt.grad_clip)
         optimizer.step()
+        scheduler.step()
 
         # 定期同步 target network
         if epoch % opt.target_update == 0:
@@ -152,6 +169,7 @@ def train(opt):
         writer.add_scalar('Train/Score', final_score, epoch - 1)
         writer.add_scalar('Train/Tetrominoes', final_tetrominoes, epoch - 1)
         writer.add_scalar('Train/Cleared lines', final_cleared_lines, epoch - 1)
+        writer.add_scalar('Train/LR', optimizer.param_groups[0]['lr'], epoch - 1)
 
         # 保存最佳模型
         if final_score > best_score:
