@@ -4,7 +4,7 @@
 
 ## Demo
 
-https://github.com/muzian666/Use-AI-to-Play-Tetris/raw/main/demo.mp4
+![Demo](demo.gif)
 
 ## 项目结构
 
